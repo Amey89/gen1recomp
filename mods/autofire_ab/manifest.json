@@ -1,0 +1,8 @@
+{
+  "id": "autofire_ab",
+  "name": "Autofire A/B Button",
+  "version": "1.0.0",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content"
+}

@@ -1,4 +1,4 @@
--- Native LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“VE2D port of Pokemon Red. A packaged build creates its private
+-- Native LÖVE2D port of Pokemon Red. A packaged build creates its private
 -- game-data cache from a user-provided ROM on first boot.
 --
 -- The save editor (tools/save-editor/) ships inside every build and is
@@ -783,10 +783,6 @@ function love.load(args)
   Importer = makeLauncher()
 end
 
-local SaveData = require("src.core.SaveData")
-local autofire_state = { timer_A = 0, timer_B = 0, active_A = false, active_B = false }
-local autofire_prev = {}
-
 function love.update(dt)
   checkEmergencyQuit(dt)
   HostDisplay.update(dt)
@@ -842,123 +838,6 @@ function love.update(dt)
     end
     return
   end
-  -- Autofire Toggle UI Checks
-  local toggle_pressed = false
-  if love.keyboard and love.keyboard.isDown then
-    local down = love.keyboard.isDown("t")
-    if down and not autofire_prev.t then toggle_pressed = true end
-    autofire_prev.t = down
-  end
-  if love.joystick and love.joystick.getJoysticks then
-    local pads = love.joystick.getJoysticks()
-    if pads and pads[1] and pads[1].isGamepadDown then
-      local down = pads[1]:isGamepadDown("back") or pads[1]:isGamepadDown("select")
-      if down and not autofire_prev.pad_toggle then toggle_pressed = true end
-      autofire_prev.pad_toggle = down
-    end
-  end
-  if love.touch and love.touch.getTouches and love.touch.getPosition then
-    local touch_down = false
-    local touches = love.touch.getTouches()
-    for _, id in ipairs(touches) do
-      local tx, ty = love.touch.getPosition(id)
-      if tx <= 300 and ty <= 300 then
-        touch_down = true
-        break
-      end
-    end
-    if touch_down and not autofire_prev.touch_toggle then toggle_pressed = true end
-    autofire_prev.touch_toggle = touch_down
-  end
-
-  local allOpts = SaveData.loadOptions()
-  if allOpts.autofireEnabled == nil then allOpts.autofireEnabled = true end
-  if allOpts.autofireRate == nil then allOpts.autofireRate = 0.05 end
-
-  if toggle_pressed then 
-    allOpts.autofireEnabled = not allOpts.autofireEnabled 
-    SaveData.saveOptions(allOpts)
-  end
-
-  -- Speed Adjuster Checks
-  local speed_inc, speed_dec = false, false
-  if love.keyboard and love.keyboard.isDown then
-    local p_down = love.keyboard.isDown("=") or love.keyboard.isDown("+") or love.keyboard.isDown("kp+")
-    local m_down = love.keyboard.isDown("-") or love.keyboard.isDown("kp-")
-    
-    if p_down and not autofire_prev.plus then speed_inc = true end
-    if m_down and not autofire_prev.minus then speed_dec = true end
-    autofire_prev.plus = p_down
-    autofire_prev.minus = m_down
-  end
-  
-  if love.joystick and love.joystick.getJoysticks then
-    local pads = love.joystick.getJoysticks()
-    if pads and pads[1] and pads[1].isGamepadDown then
-      local u_down = pads[1]:isGamepadDown("dpup")
-      local d_down = pads[1]:isGamepadDown("dpdown")
-      
-      if u_down and not autofire_prev.pad_up then speed_inc = true end
-      if d_down and not autofire_prev.pad_down then speed_dec = true end
-      autofire_prev.pad_up = u_down
-      autofire_prev.pad_down = d_down
-    end
-  end
-  
-  if speed_inc then allOpts.autofireRate = allOpts.autofireRate - 0.01 end
-  if speed_dec then allOpts.autofireRate = allOpts.autofireRate + 0.01 end
-  
-  if allOpts.autofireRate < 0.01 then allOpts.autofireRate = 0.01 end
-  if allOpts.autofireRate > 0.5 then allOpts.autofireRate = 0.5 end
-  
-  if speed_inc or speed_dec then
-    SaveData.saveOptions(allOpts)
-  end
-
-  local Input = package.loaded["src.core.Input"]
-  if Input then
-    for _, btn in ipairs({"a", "b"}) do
-      local timer_k = (btn == "a") and "timer_A" or "timer_B"
-      local active_k = (btn == "a") and "active_A" or "active_B"
-      
-      local is_held = false
-      if allOpts.autofireEnabled and Input.sources and Input.sources[btn] then
-        for source, _ in pairs(Input.sources[btn]) do
-          if source ~= "autofire" then
-            is_held = true
-            break
-          end
-        end
-      end
-      
-      if is_held then
-        autofire_state[timer_k] = autofire_state[timer_k] + dt
-        if autofire_state[timer_k] >= allOpts.autofireRate then
-          autofire_state[timer_k] = 0
-          autofire_state[active_k] = not autofire_state[active_k]
-          
-          Input.state[btn] = autofire_state[active_k]
-          if autofire_state[active_k] then
-            table.insert(Input.pressQueue, btn)
-          end
-        end
-      else
-        autofire_state[timer_k] = 0
-        if autofire_state[active_k] then
-          autofire_state[active_k] = false
-          -- If we abort midway holding, ensure standard physical state is restored
-          if not allOpts.autofireEnabled and Input.sources and Input.sources[btn] then
-             local has_physical = false
-             for src, _ in pairs(Input.sources[btn]) do
-               if src ~= "autofire" then has_physical = true break end
-             end
-             if has_physical then Input.state[btn] = true end
-          end
-        end
-      end
-    end
-  end
-
   -- Mods may wrap or veto the per-frame simulation step (pause it, react
   -- to external platform state, etc.) -- see docs/modding.md's core.update
   -- entry. Vanilla behavior (used when no mod claims the hook) is just
@@ -1019,24 +898,6 @@ function love.draw()
     end)
   end
   HostDisplay.endFrame("game", Game)
-
-  love.graphics.push("all")
-  local allOpts = package.loaded["src.core.SaveData"].loadOptions()
-  local e = allOpts.autofireEnabled; if e == nil then e = true end
-  local r = allOpts.autofireRate; if r == nil then r = 0.05 end
-  local status_str = string.format("Autofire: %s | Speed: %.2fs", e and "ON" or "OFF", r)
-  
-  local font = love.graphics.getFont()
-  local tw = font:getWidth(status_str)
-  local th = font:getHeight()
-  
-  love.graphics.setColor(0, 0, 0, 0.5)
-  love.graphics.rectangle("fill", 5, 55, tw + 10, th + 10)
-  
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.print(status_str, 10, 60)
-  
-  love.graphics.pop()
 end
 
 function love.keypressed(key, scancode, isrepeat)
@@ -1296,7 +1157,7 @@ end
 function love.touchpressed(id, x, y, dx, dy, pressure)
   if editorMode then
     -- iOS synthesizes mousepressed for the primary touch; forwarding here
-    -- would double-fire.  Android / NX need the explicit touch ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ click path
+    -- would double-fire.  Android / NX need the explicit touch → click path
     -- (love-nx does not synthesize mouse for the editor the way desktop does).
     if love.system.getOS() == "iOS" then return end
     if EditorApp and EditorApp.mousepressed then
@@ -1396,7 +1257,7 @@ function love.mousepressed(x, y, button, istouch)
     return TouchEditor.mousepressed(x, y, button)
   end
   if Studio then
-    -- Mobile LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“VE sends both a touch event and an `istouch` mouse twin.
+    -- Mobile LÖVE sends both a touch event and an `istouch` mouse twin.
     -- Studio consumes the real finger stream above, so discard the twin.
     if istouch and (love.system.getOS() == "Android" or love.system.getOS() == "iOS") then return end
     return Studio.mousepressed(x, y, button)
@@ -1407,7 +1268,7 @@ function love.mousepressed(x, y, button, istouch)
   end
   if Importer then
     -- love.touchpressed already forwards the primary touch into FlexLove for
-    -- scroll. LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“VE ALSO synthesizes a mouse press for that same touch; if both
+    -- scroll. LÖVE ALSO synthesizes a mouse press for that same touch; if both
     -- reached a press handler, one tap ran every launcher button twice and
     -- stacked two SAF pickers (#553). Clicks are polled inside FlexLove from
     -- love.touch / mouse.isDown, so dropping the synthesized istouch press is
@@ -1680,7 +1541,7 @@ function love.run()
       cap = FrameCap.DEFAULT
     elseif cap == FrameCap.DISPLAY and PresentSync.needsSoftwareCap() then
       -- Fallback cascade: probe failed / wait abandoned / sync non-
-      -- deterministic ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ FrameCap is the live pacing path on every OS.
+      -- deterministic → FrameCap is the live pacing path on every OS.
       -- (During an active probe we intentionally leave DISPLAY uncapped so
       -- calibration is not grading our own limiter.)
       cap = FrameCap.DEFAULT
